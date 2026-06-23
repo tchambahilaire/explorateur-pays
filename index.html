@@ -124,10 +124,11 @@
     </div>
 
     <script>
-        // ========================================================
-        //  🚀 API QUI FONCTIONNE À 100% : Country API
-        //  Pas de CORS, pas de serveur nécessaire
-        // ========================================================
+        // ============================================================
+        //  🌐 UTILISATION D'UNE API ALTERNATIVE : API 2 (sans CORS)
+        //  https://countries-api-836d.onrender.com/countries
+        //  Cette API fonctionne partout, même sur Vercel !
+        // ============================================================
 
         const searchInput = document.getElementById('searchInput');
         const searchBtn = document.getElementById('searchBtn');
@@ -154,6 +155,8 @@
         const mapLink = document.getElementById('mapLink');
         const suggestions = document.getElementById('suggestions');
 
+        let countriesCache = [];
+
         function toggleLoader(show) {
             loaderContainer.classList.toggle('hidden', !show);
             if (show) {
@@ -171,8 +174,6 @@
         }
 
         function displayCountry(data) {
-            console.log('📦 Données reçues :', data);
-
             countryName.textContent = data.name?.common || data.name || 'N/A';
             countryNative.textContent = `Nom officiel : ${data.name?.official || 'N/A'}`;
             countryFlag.textContent = data.flags?.emoji || data.flag || '🏳️';
@@ -182,7 +183,6 @@
             population.textContent = data.population ? data.population.toLocaleString() : 'N/A';
             area.textContent = data.area ? `${data.area.toLocaleString()} km²` : 'N/A';
 
-            // Monnaie
             if (data.currencies) {
                 const c = Object.values(data.currencies)[0];
                 currency.textContent = `${c.name} (${c.symbol || ''})`;
@@ -190,7 +190,6 @@
                 currency.textContent = 'N/A';
             }
 
-            // Langues
             if (data.languages) {
                 languages.textContent = Object.values(data.languages).join(', ');
             } else {
@@ -202,7 +201,6 @@
             tld.textContent = data.tld?.[0] || 'N/A';
             timezone.textContent = data.timezones?.[0] || 'N/A';
 
-            // Frontières
             borders.innerHTML = '';
             if (data.borders && data.borders.length > 0) {
                 data.borders.forEach(b => {
@@ -218,14 +216,12 @@
                 borders.appendChild(span);
             }
 
-            // Google Maps
             if (data.latlng) {
                 mapLink.href = `https://www.google.com/maps?q=${data.latlng[0]},${data.latlng[1]}`;
             } else {
                 mapLink.href = '#';
             }
 
-            // Suggestions
             suggestions.innerHTML = '';
             const suggestNames = data.borders || ['France', 'Allemagne', 'Italie', 'Espagne'];
             suggestNames.slice(0, 6).forEach(name => {
@@ -246,10 +242,26 @@
             loaderContainer.classList.add('hidden');
         }
 
-        // ========================================================
-        //  🌐 RECHERCHE AVEC L'API - Version qui fonctionne
-        // ========================================================
-        async function performSearch(query) {
+        // ============================================================
+        //  🌐 CHARGEMENT DE TOUS LES PAYS DEPUIS L'API ALTERNATIVE
+        // ============================================================
+        async function loadAllCountries() {
+            try {
+                const response = await fetch('https://countries-api-836d.onrender.com/countries');
+                if (!response.ok) throw new Error('Erreur chargement API');
+                const data = await response.json();
+                countriesCache = data;
+                console.log('✅ Pays chargés :', countriesCache.length);
+            } catch (error) {
+                console.error('Erreur chargement pays:', error);
+                showError('Impossible de charger la base de données des pays.');
+            }
+        }
+
+        // ============================================================
+        //  🔍 RECHERCHE DANS LA BASE DE DONNÉES LOCALE
+        // ============================================================
+        function performSearch(query) {
             if (!query || query.trim() === '') {
                 showError('Veuillez entrer un nom de pays.');
                 return;
@@ -259,42 +271,29 @@
             errorMessage.classList.add('hidden');
             resultContainer.classList.add('hidden');
 
-            const searchTerm = query.trim();
+            const searchTerm = query.trim().toLowerCase();
 
-            try {
-                // ✅ API REST Countries - l'URL standard
-                const url = `https://restcountries.com/v3.1/name/${encodeURIComponent(searchTerm)}`;
-                console.log('🔍 Requête :', url);
+            // Si les pays ne sont pas encore chargés, on les charge d'abord
+            if (countriesCache.length === 0) {
+                loadAllCountries().then(() => {
+                    performSearch(query);
+                });
+                return;
+            }
 
-                const response = await fetch(url);
-                console.log('📡 Statut :', response.status);
+            // Recherche dans le cache
+            const found = countriesCache.find(c => 
+                c.name?.common?.toLowerCase() === searchTerm ||
+                c.name?.common?.toLowerCase().includes(searchTerm) ||
+                c.name?.toLowerCase() === searchTerm ||
+                c.name?.toLowerCase().includes(searchTerm)
+            );
 
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        throw new Error(`Aucun pays trouvé pour "${searchTerm}".`);
-                    }
-                    throw new Error(`Erreur serveur (${response.status})`);
-                }
-
-                const data = await response.json();
-                console.log('✅ Données reçues :', data);
-
-                if (!data || data.length === 0) {
-                    throw new Error(`Aucun pays trouvé pour "${searchTerm}".`);
-                }
-
-                displayCountry(data[0]);
-
-            } catch (error) {
-                console.error('❌ Erreur :', error);
+            if (found) {
+                displayCountry(found);
+            } else {
                 toggleLoader(false);
-                
-                // Si erreur CORS, on propose une alternative
-                if (error.message.includes('NetworkError') || error.message.includes('CORS')) {
-                    showError('Erreur CORS. Essaye avec un serveur local (Live Server) ou déploie sur Vercel.');
-                } else {
-                    showError(error.message || 'Erreur inconnue.');
-                }
+                showError(`Aucun pays trouvé pour "${query.trim()}". Vérifiez l'orthographe.`);
             }
         }
 
@@ -306,8 +305,9 @@
 
         // --- Initialisation ---
         document.addEventListener('DOMContentLoaded', () => {
-            // Recherche France au chargement
-            performSearch('France');
+            loadAllCountries().then(() => {
+                performSearch('France');
+            });
         });
     </script>
 </body>
